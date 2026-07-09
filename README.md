@@ -227,8 +227,6 @@ The Compose file starts an n8n container, but it does not automatically provisio
 | `VITE_SUPABASE_PUBLISHABLE_KEY` | Yes | Supabase publishable key consumed by `frontend/src/lib/supabase.js`. |
 | `VITE_N8N_WEBHOOK_URL` | Yes | Example webhook variable in the frontend env file. |
 
-> Note: the current frontend code reads `VITE_N8N_WEBHOOK`, not `VITE_N8N_WEBHOOK_URL`.
-
 ## Database
 
 PostgreSQL is initialized automatically by mounting [`db/init.sql`](./db/init.sql) into `/docker-entrypoint-initdb.d/init.sql` inside the `postgres` container.
