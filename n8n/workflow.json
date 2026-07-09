@@ -1,0 +1,1232 @@
+{
+  "name": "Weekly Adzuna India Jobs Digest - Resume PDF Rerank",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "47646eab-a74e-41c4-9ce6-fcdebffad439",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -4496,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [
+                1
+              ],
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      },
+      "id": "b9d389cc-0750-48c2-864b-240cd7f9ca15",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -4496,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Normalize Resume Text From PDF').first().json;\n\nconst terms = String(cfg.search_terms || '')\n  .split(',')\n  .map(t => t.trim())\n  .filter(Boolean)\n  .slice(0, 5);\n\nif (!terms.length) {\n  throw new Error(\"No search terms found.\");\n}\n\nreturn terms.map(search_term => ({\n  json: {\n    search_term,\n    city: cfg.city || \"\",\n    job_type: cfg.job_type || \"Any\",\n    digest_email: cfg.digest_email,\n    max_jobs_to_rerank: Number(cfg.max_jobs_to_rerank || 50),\n\n    name: cfg.name,\n    skills: cfg.skills,\n    projects: cfg.projects,\n    education: cfg.education,\n    certifications: cfg.certifications,\n    internships: cfg.internships\n  }\n}));\n"
+      },
+      "id": "5d0068fb-a93d-468f-95f3-00cb69103817",
+      "name": "Build Search Terms",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2160,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.adzuna.com/v1/api/jobs/in/search/1",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "app_id",
+              "value": "={{ $env.ADZUNA_APP_ID }}"
+            },
+            {
+              "name": "app_key",
+              "value": "={{ $env.ADZUNA_APP_ID }}"
+            },
+            {
+              "name": "what",
+              "value": "={{ $json.search_term }}"
+            },
+            {
+              "name": "where",
+              "value": "={{ $json.city && $json.city.trim() !== \"\" ? $json.city : undefined }}"
+            },
+            {
+              "name": "results_per_page",
+              "value": "50"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            },
+            {
+              "name": "max_days_old",
+              "value": "100"
+            },
+            {
+              "name": "sort_by",
+              "value": "date"
+            }
+          ]
+        },
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1
+            }
+          },
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "e7ab7a38-1ff5-4c4c-a96c-866bcd35dc64",
+      "name": "Search Adzuna Jobs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1952,
+        384
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "results",
+        "options": {}
+      },
+      "id": "851bf23b-74b9-4f72-85d9-7640bd42791f",
+      "name": "Split Out Adzuna Results",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        -1744,
+        384
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "function sqlString(v) {\n  if (v === null || v === undefined || v === '') return 'NULL';\n  return `'${String(v).replace(/'/g, \"''\")}'`;\n}\n\nfunction sqlNumber(v) {\n  return v === null || v === undefined || v === '' || Number.isNaN(Number(v))\n    ? 'NULL'\n    : String(Number(v));\n}\n\nfunction sqlDate(v) {\n  return v ? `${sqlString(v)}::timestamptz` : 'NULL';\n}\n\nreturn items\n  .filter(item => item.json && item.json.url && item.json.job_id)\n  .map(item => {\n    const j = item.json;\n\n    const sql = `INSERT INTO jobs (\n  job_id,\n  source,\n  title,\n  company,\n  location,\n  work_type,\n  experience_required,\n  salary_min,\n  salary_max,\n  salary_raw,\n  salary_confidence,\n  description,\n  url,\n  date_posted\n) VALUES (\n  ${sqlString(j.job_id)},\n  ${sqlString(j.source)},\n  ${sqlString(j.title)},\n  ${sqlString(j.company)},\n  ${sqlString(j.location)},\n  ${sqlString(j.work_type)},\n  ${sqlString(j.experience_required)},\n  ${sqlNumber(j.salary_min)},\n  ${sqlNumber(j.salary_max)},\n  ${sqlString(j.salary_raw)},\n  ${sqlString(j.salary_confidence)},\n  ${sqlString(j.description)},\n  ${sqlString(j.url)},\n  ${sqlDate(j.date_posted)}\n)\nON CONFLICT (job_id) DO UPDATE SET\n  source = EXCLUDED.source,\n  title = EXCLUDED.title,\n  company = EXCLUDED.company,\n  location = EXCLUDED.location,\n  work_type = EXCLUDED.work_type,\n  experience_required = EXCLUDED.experience_required,\n  salary_min = COALESCE(jobs.salary_min, EXCLUDED.salary_min),\n  salary_max = COALESCE(jobs.salary_max, EXCLUDED.salary_max),\n  salary_raw = COALESCE(NULLIF(jobs.salary_raw, ''), EXCLUDED.salary_raw),\n  salary_confidence = CASE\n    WHEN jobs.salary_confidence = 'explicit'\n    THEN jobs.salary_confidence\n    ELSE EXCLUDED.salary_confidence\n  END,\n  description = EXCLUDED.description,\n  date_posted = COALESCE(jobs.date_posted, EXCLUDED.date_posted)\nRETURNING *;`;\n\n    return {\n      json: {\n        ...j,\n        sql\n      }\n    };\n  });"
+      },
+      "id": "f5d97c42-c071-40b7-ac17-e0ee147f1516",
+      "name": "Build Upsert SQL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1312,
+        384
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.to }}",
+        "subject": "={{ $json.subject }}",
+        "message": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "b3f49c5a-0e8a-4b00-a32b-c5e1bb156a0e",
+      "name": "Send Gmail Digest",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1600,
+        464
+      ],
+      "webhookId": "weekly-adzuna-jobs-digest",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "KshZT9JW9gk1G1jC",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT *\nFROM jobs\nWHERE source = 'adzuna'\n  AND COALESCE(emailed, false) = false\n  AND date_posted >= NOW() - INTERVAL '7 days'\n  AND (\n      LOWER(title) LIKE '%engineer%'\n   OR LOWER(title) LIKE '%developer%'\n   OR LOWER(title) LIKE '%software%'\n   OR LOWER(title) LIKE '%machine learning%'\n   OR LOWER(title) LIKE '%ai%'\n   OR LOWER(title) LIKE '%artificial intelligence%'\n   OR LOWER(title) LIKE '%data scientist%'\n   OR LOWER(title) LIKE '%data engineer%'\n   OR LOWER(title) LIKE '%python%'\n   OR LOWER(title) LIKE '%backend%'\n   OR LOWER(title) LIKE '%full stack%'\n   OR LOWER(title) LIKE '%frontend%'\n   OR LOWER(title) LIKE '%devops%'\n   OR LOWER(title) LIKE '%ml%'\n   OR LOWER(title) LIKE '%deep learning%'\n  )\nORDER BY date_posted DESC NULLS LAST,\n         created_at DESC\nLIMIT 50;",
+        "options": {}
+      },
+      "id": "8ce9d5fa-af71-4af8-be72-047cdb48c3ad",
+      "name": "Select Candidate Jobs",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -880,
+        384
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "Ek41kd5cuXLcc7tD",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has_id",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "3c409280-f544-4ac4-b5a5-e0e99485d6f9",
+      "name": "Has Candidate Jobs?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -240,
+        1120
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const cfg = $('Normalize Resume Text From PDF').first().json;\n\n// ---------- Resume Skills ----------\nconst skills = Object.values(cfg.skills || {})\n  .flat()\n  .filter(Boolean)\n  .map(s => String(s).trim());\n\nconst resumeSkills = [...new Set(skills)];\n\n// ---------- Job ----------\nconst job = {\n  job_id: $json.id,\n  title: $json.title || \"\",\n  company: $json.company || \"\",\n  location: $json.location || \"\",\n  work_type: $json.work_type || \"\",\n  experience_required: $json.experience_required || \"\",\n  description: String($json.description || \"\")\n    .replace(/\\s+/g, \" \")\n    .trim()\n    .slice(0, 250)\n};\n\n// ---------- Prompt ----------\nconst prompt = `\nYou are an ATS recruiter.\n\nEvaluate how well the candidate matches this job.\n\nRules:\n- Use ONLY the information provided.\n- Do NOT invent skills, technologies, experience, or requirements.\n- Identify technologies, programming languages, frameworks, databases, cloud platforms, tools, and software explicitly mentioned or clearly implied in the job description.\n- matching_skills: Include only skills present in BOTH the candidate's skills and the job requirements.\n- missing_skills: Include only skills required by the job but NOT present in the candidate's skills.\n- Do not include duplicate skills.\n- Prefer specific technologies (e.g., Python, Docker, AWS, TensorFlow) over generic terms (e.g., Programming, Development).\n- Keep the reasoning concise (maximum 2 sentences).\n- Return ONLY valid JSON matching the output schema.\n\nCandidate Skills:\n${resumeSkills.join(\", \")}\n\nJob Title:\n${job.title}\n\nCompany:\n${job.company}\n\nLocation:\n${job.location}\n\nExperience:\n${job.experience_required}\n\nJob Description:\n${job.description}\n`;\n\nreturn {\n  job_id: job.job_id,\n  prompt\n};"
+      },
+      "id": "58bd0a9d-0c47-4e49-9f35-3ea82dd04cb3",
+      "name": "Prepare Rerank Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -368,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.prompt }}",
+        "hasOutputParser": true,
+        "messages": {
+          "messageValues": [
+            {
+              "message": "You are an expert ATS recruiter.  Compare one candidate resume against one job posting.  Evaluate how well the candidate matches the role.  Never invent information.  Return ONLY valid JSON matching the output schema."
+            }
+          ]
+        }
+      },
+      "id": "ba1af9a5-09cc-44c2-937e-3d504dfc75f6",
+      "name": "Rerank Jobs with AI Chain",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.6,
+      "position": [
+        -64,
+        368
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+        "options": {
+          "maxTokensToSample": 600,
+          "temperature": 0.1
+        }
+      },
+      "id": "5caa8783-392a-4af8-8faa-56c1a979cf2c",
+      "name": "Groq Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        -64,
+        608
+      ],
+      "credentials": {
+        "groqApi": {
+          "id": "OubaamJzG4ZLSlKY",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"additionalProperties\": false,\n  \"required\": [\n    \"compatibility_score\",\n    \"reasoning\",\n    \"matching_skills\",\n    \"missing_skills\"\n  ],\n  \"properties\": {\n    \"compatibility_score\": {\n      \"type\": \"integer\",\n      \"minimum\": 0,\n      \"maximum\": 100\n    },\n    \"reasoning\": {\n      \"type\": \"string\"\n    },\n    \"matching_skills\": {\n      \"type\": \"array\",\n      \"items\": {\n        \"type\": \"string\"\n      }\n    },\n    \"missing_skills\": {\n      \"type\": \"array\",\n      \"items\": {\n        \"type\": \"string\"\n      }\n    }\n  }\n}"
+      },
+      "id": "6ccbf274-e73e-41b5-b604-ef1b1584377a",
+      "name": "Structured Output Parser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.2,
+      "position": [
+        80,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "function asObject(value) {\n  if (!value) return {};\n\n  if (typeof value === \"object\") return value;\n\n  const cleaned = String(value)\n    .replace(/^```(?:json)?\\s*/i, \"\")\n    .replace(/\\s*```$/i, \"\")\n    .trim();\n\n  return JSON.parse(cleaned);\n}\n\nfunction arr(v) {\n  return Array.isArray(v)\n    ? v.filter(Boolean).map(String)\n    : [];\n}\n\nconst ai = asObject(\n  $json.output ??\n  $json.text ??\n  $json\n);\n\nconst prep = $('Prepare Rerank Prompt').item.json;\n\nreturn {\n  job_id: prep.job_id,\n\n  compatibility_score: Number(ai.compatibility_score ?? 0),\n\n  reasoning: String(ai.reasoning || \"\").trim(),\n\n  matching_skills: arr(ai.matching_skills),\n\n  missing_skills: arr(ai.missing_skills)\n};"
+      },
+      "id": "61e336f3-1543-4261-9e5f-5ae5cd556b4b",
+      "name": "Validate Rerank Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE jobs\nSET\n    compatibility_score = {{ Number($json.compatibility_score) }},\n    rerank_reasoning = {{ \"'\" + String($json.reasoning).replace(/'/g, \"''\") + \"'\" }},\n    matching_skills = {{ \"'\" + JSON.stringify($json.matching_skills || []).replace(/'/g, \"''\") + \"'::jsonb\" }},\n    missing_skills = {{ \"'\" + JSON.stringify($json.missing_skills || []).replace(/'/g, \"''\") + \"'::jsonb\" }},\n    scored_at = NOW()\nWHERE id = {{ \"'\" + $json.job_id + \"'::uuid\" }}\nRETURNING *;",
+        "options": {}
+      },
+      "id": "7e55dfd0-3c89-410f-9abe-963d7e058a4f",
+      "name": "Apply Rerank Updates",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        464,
+        368
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "Ek41kd5cuXLcc7tD",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const TOP_K = 5;\n\n// ---------- Helpers ----------\n\nfunction arr(v) {\n  if (Array.isArray(v)) return v;\n  if (!v) return [];\n  try {\n    const parsed = typeof v === \"string\" ? JSON.parse(v) : v;\n    return Array.isArray(parsed) ? parsed : [];\n  } catch {\n    return [];\n  }\n}\n\nfunction esc(v) {\n  return String(v ?? \"\").replace(/[&<>\"']/g, c => ({\n    \"&\": \"&amp;\",\n    \"<\": \"&lt;\",\n    \">\": \"&gt;\",\n    '\"': \"&quot;\",\n    \"'\": \"&#39;\"\n  }[c]));\n}\n\nfunction list(items) {\n  const values = arr(items).filter(Boolean);\n\n  if (values.length === 0) {\n    return \"<li>None identified</li>\";\n  }\n\n  return values\n    .map(v => `<li>${esc(v)}</li>`)\n    .join(\"\");\n}\n\nfunction salary(j) {\n\n  if (j.salary_min == null && j.salary_max == null) {\n    return \"Not listed\";\n  }\n\n  const min = j.salary_min != null\n    ? Number(j.salary_min).toLocaleString(\"en-IN\")\n    : \"\";\n\n  const max = j.salary_max != null\n    ? Number(j.salary_max).toLocaleString(\"en-IN\")\n    : \"\";\n\n  const range =\n    min && max && min !== max\n      ? `${min} - ${max}`\n      : (min || max);\n\n  const confidence =\n    j.salary_confidence === \"explicit\"\n      ? \"confirmed\"\n      : j.salary_confidence === \"inferred\"\n      ? \"estimated\"\n      : \"unknown\";\n\n  return `${range} (${confidence})`;\n}\n\n// ---------- Jobs ----------\n\nconst jobs = items\n  .map(i => i.json)\n  .filter(j => j && j.id && j.url && !j.emailed)\n  .sort((a, b) => Number(b.compatibility_score || 0) - Number(a.compatibility_score || 0))\n  .slice(0, TOP_K);\n\nconst cfg = $(\"Workflow Config\").first().json;\n\nconst to = cfg.digest_email;\n\nconst resumeHash = jobs.length\n  ? jobs[0].resume_hash\n  : \"\";\n\nconst date = new Date().toLocaleDateString(\"en-IN\", {\n  weekday: \"long\",\n  year: \"numeric\",\n  month: \"short\",\n  day: \"numeric\"\n});\n\nlet html;\n\n// ---------- Empty Digest ----------\n\nif (jobs.length === 0) {\n\n  html = `\n<div style=\"font-family:Arial,sans-serif;line-height:1.6;color:#111;\">\n  <h2>Weekly Job Digest</h2>\n\n  <p>\n    The automation ran on <strong>${esc(date)}</strong>.\n  </p>\n\n  <p>\n    No new jobs were found that matched this resume.\n  </p>\n</div>\n`;\n\n} else {\n\n  const cards = jobs.map(j => `\n\n<div style=\"border:1px solid #ddd;border-radius:8px;padding:18px;margin-bottom:18px;background:#fff;\">\n\n  <h3 style=\"margin:0 0 8px 0;\">\n    ${esc(j.title)}\n  </h3>\n\n  <p style=\"margin:0 0 8px;color:#444;\">\n    ${esc(j.company || \"Unknown Company\")}<br>\n    ${esc(j.location || \"Unknown Location\")}\n  </p>\n\n  <p>\n    <strong>Compatibility Score:</strong>\n    ${esc(j.compatibility_score)}%\n  </p>\n\n  <p>\n    <strong>Salary:</strong>\n    ${esc(salary(j))}\n  </p>\n\n  <p>\n    <strong>Reasoning:</strong><br>\n    ${esc(j.rerank_reasoning || \"No reasoning available\")}\n  </p>\n\n  <p><strong>Matching Skills</strong></p>\n\n  <ul>\n    ${list(j.matching_skills)}\n  </ul>\n\n  <p><strong>Missing Skills</strong></p>\n\n  <ul>\n    ${list(j.missing_skills)}\n  </ul>\n\n  <p style=\"margin-top:18px;\">\n    <a href=\"${esc(j.url)}\"\n       style=\"background:#0b57d0;color:white;padding:10px 18px;border-radius:5px;text-decoration:none;\">\n      Apply Now\n    </a>\n  </p>\n\n</div>\n\n`).join(\"\");\n\n  html = `\n<div style=\"font-family:Arial,sans-serif;line-height:1.6;color:#111;\">\n\n  <h2>Weekly Job Digest</h2>\n\n  <p>\n    Generated on <strong>${esc(date)}</strong>\n  </p>\n\n  ${cards}\n\n</div>\n`;\n\n}\n\n// ---------- SQL to mark emailed ----------\n\nlet mark_emailed_sql = \"SELECT 1;\";\n\nif (jobs.length > 0) {\n\n  const ids = jobs\n    .map(j => `'${String(j.id).replace(/'/g, \"''\")}'::uuid`)\n    .join(\", \");\n\n  mark_emailed_sql = `\nUPDATE jobs\nSET emailed = true\nWHERE id IN (${ids});\n`;\n\n}\n\n// ---------- Output ----------\n\nreturn [{\n  json: {\n    to,\n\n    subject: jobs.length\n      ? `Weekly Job Digest - Top ${jobs.length} Job Matches`\n      : \"Weekly Job Digest - No New Matches\",\n\n    html,\n\n    job_ids: jobs.map(j => j.id),\n\n    mark_emailed_sql\n  }\n}];"
+      },
+      "id": "293f1b9b-3239-4791-a910-15f2bfe8602f",
+      "name": "Build Email Digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        464
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Workflow Config').first().json;\n\n// Ensure the LLM returned a parsed resume\nif (!$json.name && !$json.skills && !$json.projects) {\n  throw new Error(\"Resume parsing failed. No structured resume data was found.\");\n}\n\nreturn [{\n  json: {\n    // Workflow config\n    ...cfg,\n\n    // Parsed resume\n    name: $json.name || \"\",\n\n    skills: $json.skills || {\n      programming_languages: [],\n      frameworks_libraries: [],\n      databases: [],\n      cloud_platforms: [],\n      tools: [],\n      technologies: [],\n      other: []\n    },\n\n    projects: $json.projects || [],\n    internships: $json.internships || [],\n    certifications: $json.certifications || [],\n    education: $json.education || [],\n\n    // Metadata\n    resume_source: \"pdf\",\n    parsed_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "adc59339-c5ac-446f-8bed-8ac82f2b0f2d",
+      "name": "Normalize Resume Text From PDF",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2352,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "resume-upload",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -4144,
+        688
+      ],
+      "id": "9de935ec-b58b-4511-8ceb-2ac2c5655775",
+      "name": "Webhook",
+      "webhookId": "bbe0882c-122b-450c-8e12-c4d03ae90430"
+    },
+    {
+      "parameters": {
+        "url": "={{$json.pdfUrl}}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -3280,
+        384
+      ],
+      "id": "8af99dc9-0ddc-41c8-9b8a-9c285cd5e795",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "search_terms",
+              "name": "search_terms",
+              "value": "={{ $json.body?.search_terms ?? $json.search_terms ?? \"\" }}",
+              "type": "string"
+            },
+            {
+              "id": "digest_email",
+              "name": "digest_email",
+              "value": "={{ $json.body?.email ?? $json.digest_email ?? \"\" }}",
+              "type": "string"
+            },
+            {
+              "id": "max_jobs_to_rerank",
+              "name": "max_jobs_to_rerank",
+              "value": "={{ $json.body?.max_jobs_to_rerank ?? $json.max_jobs_to_rerank ?? 50 }}",
+              "type": "number"
+            },
+            {
+              "id": "388b4121-4d5a-4389-b5ac-a5f66de1c4f9",
+              "name": "city",
+              "value": "={{ $json.body?.city ?? $json.city ?? \"\" }}",
+              "type": "string"
+            },
+            {
+              "id": "5443e44c-2c42-4944-b2a3-82500a0b06c0",
+              "name": "pdfUrl",
+              "value": "={{ $json.body?.pdfUrl ?? $json.pdf_url ?? \"\" }}",
+              "type": "string"
+            },
+            {
+              "id": "2729aed8-3e1f-4ccf-8e8e-0edd4f624b59",
+              "name": "job_type",
+              "value": "={{ $json.body?.job_type ?? $json.job_type ?? \"Any\" }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "30b1991e-4382-4640-bf0d-7871de1bbc31",
+      "name": "Workflow Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -3456,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{ $env.PARSER_SERVICE_URL }}/extract",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "data"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -3088,
+        384
+      ],
+      "id": "51f0cfed-8c5d-4ce5-9d83-40139beff652",
+      "name": "HTTP Request1"
+    },
+    {
+      "parameters": {
+        "model": "llama-3.3-70b-versatile",
+        "options": {
+          "maxTokensToSample": 4096,
+          "temperature": 0.2
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        -2816,
+        704
+      ],
+      "id": "3c261e40-7d40-4da9-a7a8-95238245eae7",
+      "name": "Groq Chat Model1",
+      "credentials": {
+        "groqApi": {
+          "id": "OubaamJzG4ZLSlKY",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are an expert ATS resume parser.\n\nExtract structured information from the resume accurately.\n\nRules:\n- Return only information explicitly present in the resume.\n- Never infer, guess, or hallucinate information.\n- If a field is missing, return an empty array.\n- Preserve the original wording where appropriate.\n- For projects, extract the project title and the technologies, programming languages, frameworks, tools, databases, or cloud services mentioned.\n- Ignore contact details except the candidate's name.\n- Group skills into the most appropriate categories.\n\nAlways return output in this exact structure:\n\n{\n  \"output\": {\n    \"name\": \"John Doe\",\n    \"skills\": {\n      \"programming_languages\": [],\n      \"frameworks_libraries\": [],\n      \"databases\": [],\n      \"cloud_platforms\": [],\n      \"tools\": [],\n      \"technologies\": [],\n      \"other\": []\n    },\n    \"projects\": [\n      {\n        \"title\": \"Project Name\",\n        \"technologies\": []\n      }\n    ],\n    \"internships\": [\n      {\n        \"company\": \"Company Name\",\n        \"role\": \"Intern Role\"\n      }\n    ],\n    \"certifications\": [],\n    \"education\": [\n      {\n        \"degree\": \"\",\n        \"institution\": \"\",\n        \"cgpa\": \"\"\n      }\n    ]\n  }\n}\n\nReturn ONLY the JSON object.\nDo not include markdown, explanations, or code fences.\n\nResume:\n\n{{$json.text}}",
+        "messages": {
+          "messageValues": [
+            {
+              "message": "You are an expert ATS resume parser.  Your task is to accurately extract structured information from resumes.  Rules: - Return only information explicitly present in the resume. - Never hallucinate or invent information. - If a field is missing, return an empty array. - Preserve the original wording where possible. - For projects, extract the project title and the technologies/frameworks/tools mentioned. - Ignore contact details except the candidate's name."
+            }
+          ]
+        },
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        -2816,
+        384
+      ],
+      "id": "045a29b7-0da4-4019-a9cf-0acc1e2b4d89",
+      "name": "Basic LLM Chain"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $json.text ?? $json.output ?? '';\n\nconst cleaned = String(raw)\n  .replace(/^```(?:json)?\\s*/i, '')\n  .replace(/\\s*```$/i, '')\n  .trim();\n\nconst parsed = JSON.parse(cleaned);\n\n// Normalize: ensure all expected fields exist\nconst output = parsed.output ?? parsed;\n\nreturn [{\n  json: {\n    name: output.name ?? '',\n\n    skills: {\n      programming_languages: output.skills?.programming_languages ?? [],\n      frameworks_libraries: output.skills?.frameworks_libraries ?? [],\n      databases: output.skills?.databases ?? [],\n      cloud_platforms: output.skills?.cloud_platforms ?? [],\n      tools: output.skills?.tools ?? [],\n      technologies: output.skills?.technologies ?? [],\n      other: output.skills?.other ?? []\n    },\n\n    projects: (output.projects ?? []).map(p => ({\n      title: p.title ?? '',\n      technologies: p.technologies ?? []\n    })),\n\n    internships: (output.internships ?? []).map(i => ({\n      company: i.company ?? '',\n      role: i.role ?? ''\n    })),\n\n    certifications: output.certifications ?? [],\n\n    education: (output.education ?? []).map(e => ({\n      degree: e.degree ?? '',\n      institution: e.institution ?? '',\n      cgpa: e.cgpa ?? ''\n    })),\n\n    resume_text: $('HTTP Request1').first().json.text ?? ''\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2528,
+        384
+      ],
+      "id": "935d81cc-315c-4e0d-b724-da4a6bd1ab7a",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return {\n  json: {\n    source: \"adzuna\",\n    job_id: $json.id,\n\n    title: $json.title || \"\",\n\n    company: $json.company?.display_name || \"\",\n\n    location: $json.location?.display_name || \"\",\n\n    description: $json.description || \"\",\n\n    url: $json.redirect_url || \"\",\n\n    salary_min: $json.salary_min ?? null,\n\n    salary_max: $json.salary_max ?? null,\n\n    salary_raw: $json.salary_is_predicted ?? \"\",\n\n    date_posted: $json.created ?? null\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1488,
+        384
+      ],
+      "id": "415299d8-bfe3-48f5-b2f4-917080e2fbf2",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "batchSize": 10,
+        "options": {
+          "reset": false
+        }
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -688,
+        368
+      ],
+      "id": "2ed6711a-c5de-4963-9c6c-61bac9baad9c",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "amount": 60
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        672,
+        368
+      ],
+      "id": "7689a711-4573-40df-adf2-b9dac3d70efa",
+      "name": "Wait",
+      "webhookId": "a20ae195-cf5f-4bc9-ad26-278180b0711a"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT *\nFROM jobs\nWHERE source = 'adzuna'\n  AND COALESCE(emailed, false) = false\n  AND compatibility_score IS NOT NULL\n  AND date_posted >= NOW() - INTERVAL '7 days'\nORDER BY compatibility_score DESC,\n         date_posted DESC NULLS LAST,\n         created_at DESC\nLIMIT 5;",
+        "options": {}
+      },
+      "id": "beceaca6-aaa0-4a1a-987a-0376dd2d30ed",
+      "name": "Select Reranked Top 5",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        208,
+        -112
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "Ek41kd5cuXLcc7tD",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "CREATE TABLE IF NOT EXISTS workflow_config (\n    id integer PRIMARY KEY DEFAULT 1,\n\n    digest_email text NOT NULL,\n\n    city text,\n\n    job_type text,\n\n    search_terms text,\n\n    pdf_url text NOT NULL,\n\n    max_jobs_to_rerank integer DEFAULT 50,\n\n    updated_at timestamptz DEFAULT now()\n);",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -4224,
+        208
+      ],
+      "id": "50888052-7a45-4186-9b32-2bbc610ed10e",
+      "name": "Create Workflow Config",
+      "credentials": {
+        "postgres": {
+          "id": "Ek41kd5cuXLcc7tD",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "CREATE TABLE IF NOT EXISTS jobs (\n    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),\n\n    job_id text NOT NULL UNIQUE,\n\n    source text NOT NULL,\n\n    title text,\n    company text,\n    location text,\n    work_type text,\n    experience_required text,\n\n    salary_min numeric,\n    salary_max numeric,\n    salary_raw text,\n    salary_confidence text,\n\n    description text,\n\n    url text NOT NULL,\n\n    date_posted timestamptz,\n\n    compatibility_score integer,\n\n    rerank_reasoning text,\n\n    matching_skills jsonb,\n\n    missing_skills jsonb,\n\n    scored_at timestamptz,\n\n    emailed boolean DEFAULT false,\n\n    created_at timestamptz DEFAULT now()\n);\n\nCREATE INDEX IF NOT EXISTS jobs_source_idx\nON jobs (source);\n\nCREATE INDEX IF NOT EXISTS jobs_posted_idx\nON jobs (date_posted DESC);\n\nCREATE INDEX IF NOT EXISTS jobs_score_idx\nON jobs (compatibility_score DESC);\n\nCREATE INDEX IF NOT EXISTS jobs_emailed_idx\nON jobs (emailed);\n\nCREATE TABLE IF NOT EXISTS job_score_errors (\n    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),\n\n    job_id uuid REFERENCES jobs(id) ON DELETE CASCADE,\n\n    source text DEFAULT 'groq',\n\n    raw_response text,\n\n    error_message text,\n\n    created_at timestamptz DEFAULT now()\n);",
+        "options": {}
+      },
+      "id": "1d20a4a8-63d0-4b2a-b206-b108eb0fbca1",
+      "name": "Create Jobs Table",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -4000,
+        208
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "Ek41kd5cuXLcc7tD",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n    digest_email,\n    city,\n    job_type,\n    search_terms,\n    pdf_url,\n    max_jobs_to_rerank,\n    updated_at\nFROM workflow_config\nWHERE id = 1\nLIMIT 1;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -3760,
+        208
+      ],
+      "id": "240995ba-b723-4dab-847a-a679325814f0",
+      "name": "Execute a SQL query1",
+      "credentials": {
+        "postgres": {
+          "id": "Ek41kd5cuXLcc7tD",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has_webhook_pdf",
+              "leftValue": "={{ $json.body?.pdfUrl ?? '' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ac59fd8d-ed33-4819-ad1b-543dc234125f",
+      "name": "Persist Workflow Config?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -3376,
+        672
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO workflow_config (\n    id,\n    digest_email,\n    city,\n    job_type,\n    search_terms,\n    pdf_url,\n    max_jobs_to_rerank,\n    updated_at\n)\nVALUES (\n    1,\n    {{ \"'\" + $json.digest_email.replace(/'/g, \"''\") + \"'\" }},\n    {{ $json.city ? \"'\" + $json.city.replace(/'/g, \"''\") + \"'\" : \"NULL\" }},\n    {{ $json.job_type ? \"'\" + $json.job_type.replace(/'/g, \"''\") + \"'\" : \"NULL\" }},\n    {{ $json.search_terms ? \"'\" + $json.search_terms.replace(/'/g, \"''\") + \"'\" : \"NULL\" }},\n    {{ \"'\" + $json.pdfUrl.replace(/'/g, \"''\") + \"'\" }},\n    {{ Number($json.max_jobs_to_rerank || 50) }},\n    NOW()\n)\nON CONFLICT (id)\nDO UPDATE SET\n    digest_email = EXCLUDED.digest_email,\n    city = EXCLUDED.city,\n    job_type = EXCLUDED.job_type,\n    search_terms = EXCLUDED.search_terms,\n    pdf_url = EXCLUDED.pdf_url,\n    max_jobs_to_rerank = EXCLUDED.max_jobs_to_rerank,\n    updated_at = NOW();",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -3104,
+        656
+      ],
+      "id": "5049e979-7c47-40e2-9b77-d4a89197f457",
+      "name": "Execute a SQL query",
+      "credentials": {
+        "postgres": {
+          "id": "Ek41kd5cuXLcc7tD",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "47e9fc23-8571-47ad-b5db-363a110f8aaf",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        688
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "to",
+              "name": "to",
+              "value": "={{ $node[\"Workflow Config\"].isExecuted ? $node[\"Workflow Config\"].json.digest_email : \"you@example.com\" }}",
+              "type": "string"
+            },
+            {
+              "id": "subject",
+              "name": "subject",
+              "value": "n8n job digest workflow failed",
+              "type": "string"
+            },
+            {
+              "id": "html",
+              "name": "html",
+              "value": "={{ `<div style=\"font-family:Arial,sans-serif\"><h2>Job digest workflow failed</h2><p><strong>Workflow:</strong> ${$json.workflow?.name || 'unknown'}</p><p><strong>Error:</strong> ${$json.execution?.error?.message || $json.error?.message || 'Unknown error'}</p><p>Open the failed n8n execution for details.</p></div>` }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "3efc8d9c-395e-48ee-a65a-ed32163615e9",
+      "name": "Build Failure Email",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1616,
+        688
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.to }}",
+        "subject": "={{ $json.subject }}",
+        "message": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "bee62bcc-511a-42c4-b8d6-d0b7f956ea76",
+      "name": "Send Failure Gmail",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1856,
+        688
+      ],
+      "webhookId": "weekly-adzuna-jobs-failure",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "KshZT9JW9gk1G1jC",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "{{ $json.sql || 'SELECT 1 WHERE false;' }}",
+        "options": {}
+      },
+      "id": "c63c495c-9728-4c0c-ae3c-d5b1d4def120",
+      "name": "Upsert Jobs",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -1056,
+        384
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "Ek41kd5cuXLcc7tD",
+          "name": "Postgres account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Create Workflow Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Create Workflow Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Search Terms": {
+      "main": [
+        [
+          {
+            "node": "Search Adzuna Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Adzuna Jobs": {
+      "main": [
+        [
+          {
+            "node": "Split Out Adzuna Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out Adzuna Results": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Upsert SQL": {
+      "main": [
+        [
+          {
+            "node": "Upsert Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Candidate Jobs": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Candidate Jobs?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Rerank Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Email Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Rerank Prompt": {
+      "main": [
+        [
+          {
+            "node": "Rerank Jobs with AI Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Rerank Jobs with AI Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Rerank Jobs with AI Chain",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rerank Jobs with AI Chain": {
+      "main": [
+        [
+          {
+            "node": "Validate Rerank Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Rerank Output": {
+      "main": [
+        [
+          {
+            "node": "Apply Rerank Updates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply Rerank Updates": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Email Digest": {
+      "main": [
+        [
+          {
+            "node": "Send Gmail Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Resume Text From PDF": {
+      "main": [
+        [
+          {
+            "node": "Build Search Terms",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Workflow Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Workflow Config": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Persist Workflow Config?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request1": {
+      "main": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Normalize Resume Text From PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Build Upsert SQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Select Reranked Top 5",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Has Candidate Jobs?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Reranked Top 5": {
+      "main": [
+        [
+          {
+            "node": "Build Email Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Jobs Table": {
+      "main": [
+        [
+          {
+            "node": "Execute a SQL query1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Workflow Config": {
+      "main": [
+        [
+          {
+            "node": "Create Jobs Table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute a SQL query1": {
+      "main": [
+        [
+          {
+            "node": "Workflow Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Persist Workflow Config?": {
+      "main": [
+        [
+          {
+            "node": "Execute a SQL query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Build Failure Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Failure Email": {
+      "main": [
+        [
+          {
+            "node": "Send Failure Gmail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Jobs": {
+      "main": [
+        [
+          {
+            "node": "Select Candidate Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "0bfa13e8-eac9-48cc-9d1d-29c44315887a",
+  "meta": {
+    "instanceId": "34247d3ef3e63ecdb2c540f6d3d191bd1bb0a0a32159c502eb256e22ce337038"
+  },
+  "nodeGroups": [],
+  "id": "hpjtQcd0nVipsoUG",
+  "tags": []
+}
