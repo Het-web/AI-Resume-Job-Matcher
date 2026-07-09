@@ -154,12 +154,6 @@ Create the root environment file:
 cp .env.example .env
 ```
 
-Create the frontend environment file:
-
-```bash
-cp frontend/.env.example frontend/.env
-```
-
 Fill in:
 
 - PostgreSQL credentials
