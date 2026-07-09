@@ -416,24 +416,6 @@ flowchart LR
     N -->|SMTP/OAuth via node| GM[Gmail]
 ```
 
-## Screenshots
-
-### Frontend
-
-![Frontend Screenshot Placeholder](docs/frontend-placeholder.png)
-
-### n8n Workflow
-
-![n8n Workflow Placeholder](docs/n8n-workflow-placeholder.png)
-
-### Weekly Email
-
-![Weekly Email Placeholder](docs/weekly-email-placeholder.png)
-
-### Docker Containers
-
-![Docker Containers Placeholder](docs/docker-containers-placeholder.png)
-
 ## Future Improvements
 
 - Add authentication and per-user workflow configuration instead of a single shared `workflow_config` row.
