@@ -331,7 +331,7 @@ The n8n workflow file is [`n8n/workflow.json`](./n8n/workflow.json). Its exporte
 
 - Trigger node: `Webhook`
 - HTTP method: `POST`
-- Exported path in the workflow file: `/webhook/bbe0882c-122b-450c-8e12-c4d03ae90430`
+- Exported path in the workflow file: `/webhook/resume-uploader`
 - Incoming payload fields used by the workflow:
   - `email`
   - `city`
