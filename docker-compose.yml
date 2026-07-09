@@ -6,6 +6,10 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: resume-job-matcher-frontend
+    args:
+      VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
+      VITE_SUPABASE_PUBLISHABLE_KEY: ${VITE_SUPABASE_PUBLISHABLE_KEY}
+      VITE_N8N_WEBHOOK_URL: ${VITE_N8N_WEBHOOK_URL}
     ports:
       - "5173:80"
     restart: unless-stopped
