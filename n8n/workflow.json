@@ -60,7 +60,7 @@
             },
             {
               "name": "app_key",
-              "value": "={{ $env.ADZUNA_APP_ID }}"
+              "value": "={{ $env.ADZUNA_APP_KEY }}"
             },
             {
               "name": "what",
@@ -612,48 +612,6 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "CREATE TABLE IF NOT EXISTS workflow_config (\n    id integer PRIMARY KEY DEFAULT 1,\n\n    digest_email text NOT NULL,\n\n    city text,\n\n    job_type text,\n\n    search_terms text,\n\n    pdf_url text NOT NULL,\n\n    max_jobs_to_rerank integer DEFAULT 50,\n\n    updated_at timestamptz DEFAULT now()\n);",
-        "options": {}
-      },
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.6,
-      "position": [
-        -4224,
-        208
-      ],
-      "id": "50888052-7a45-4186-9b32-2bbc610ed10e",
-      "name": "Create Workflow Config",
-      "credentials": {
-        "postgres": {
-          "id": "Ek41kd5cuXLcc7tD",
-          "name": "Postgres account"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "operation": "executeQuery",
-        "query": "CREATE TABLE IF NOT EXISTS jobs (\n    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),\n\n    job_id text NOT NULL UNIQUE,\n\n    source text NOT NULL,\n\n    title text,\n    company text,\n    location text,\n    work_type text,\n    experience_required text,\n\n    salary_min numeric,\n    salary_max numeric,\n    salary_raw text,\n    salary_confidence text,\n\n    description text,\n\n    url text NOT NULL,\n\n    date_posted timestamptz,\n\n    compatibility_score integer,\n\n    rerank_reasoning text,\n\n    matching_skills jsonb,\n\n    missing_skills jsonb,\n\n    scored_at timestamptz,\n\n    emailed boolean DEFAULT false,\n\n    created_at timestamptz DEFAULT now()\n);\n\nCREATE INDEX IF NOT EXISTS jobs_source_idx\nON jobs (source);\n\nCREATE INDEX IF NOT EXISTS jobs_posted_idx\nON jobs (date_posted DESC);\n\nCREATE INDEX IF NOT EXISTS jobs_score_idx\nON jobs (compatibility_score DESC);\n\nCREATE INDEX IF NOT EXISTS jobs_emailed_idx\nON jobs (emailed);\n\nCREATE TABLE IF NOT EXISTS job_score_errors (\n    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),\n\n    job_id uuid REFERENCES jobs(id) ON DELETE CASCADE,\n\n    source text DEFAULT 'groq',\n\n    raw_response text,\n\n    error_message text,\n\n    created_at timestamptz DEFAULT now()\n);",
-        "options": {}
-      },
-      "id": "1d20a4a8-63d0-4b2a-b206-b108eb0fbca1",
-      "name": "Create Jobs Table",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.5,
-      "position": [
-        -4000,
-        208
-      ],
-      "credentials": {
-        "postgres": {
-          "id": "Ek41kd5cuXLcc7tD",
-          "name": "Postgres account"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "operation": "executeQuery",
         "query": "SELECT\n    digest_email,\n    city,\n    job_type,\n    search_terms,\n    pdf_url,\n    max_jobs_to_rerank,\n    updated_at\nFROM workflow_config\nWHERE id = 1\nLIMIT 1;",
         "options": {}
       },
@@ -827,7 +785,7 @@
       "main": [
         [
           {
-            "node": "Create Workflow Config",
+            "node": "Execute a SQL query1",
             "type": "main",
             "index": 0
           }
@@ -838,7 +796,7 @@
       "main": [
         [
           {
-            "node": "Create Workflow Config",
+            "node": "Execute a SQL query1",
             "type": "main",
             "index": 0
           }
@@ -1139,28 +1097,6 @@
         ]
       ]
     },
-    "Create Jobs Table": {
-      "main": [
-        [
-          {
-            "node": "Execute a SQL query1",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Create Workflow Config": {
-      "main": [
-        [
-          {
-            "node": "Create Jobs Table",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Execute a SQL query1": {
       "main": [
         [
@@ -1217,12 +1153,12 @@
       ]
     }
   },
-  "active": false,
+  "active": true,
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate"
   },
-  "versionId": "0bfa13e8-eac9-48cc-9d1d-29c44315887a",
+  "versionId": "b3a88f31-898e-457d-a116-5e52f8c99fb2",
   "meta": {
     "instanceId": "34247d3ef3e63ecdb2c540f6d3d191bd1bb0a0a32159c502eb256e22ce337038"
   },
